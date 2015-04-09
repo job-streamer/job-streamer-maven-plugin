@@ -26,6 +26,9 @@ import java.util.Map;
 @Mojo(name = "deploy", defaultPhase = LifecyclePhase.DEPLOY, threadSafe = true,
         requiresDependencyResolution = ResolutionScope.RUNTIME)
 public class DeployMojo extends AbstractMojo {
+    private static final Keyword KW_NAME =        Keyword.newKeyword("application", "name");
+    private static final Keyword KW_DESCRIPTION = Keyword.newKeyword("application", "description");
+    private static final Keyword KW_CLASSPATHS =  Keyword.newKeyword("application", "classpaths");
     @Component
     protected MavenProject project;
 
@@ -46,19 +49,19 @@ public class DeployMojo extends AbstractMojo {
 
     @Override
     public void execute() throws MojoExecutionException {
-        Map<Keyword, Object> application = new HashMap();
+        Map<Keyword, Object> application = new HashMap<Keyword, Object>();
         if (name != null) {
-            application.put(Keyword.newKeyword("name"), name);
+            application.put(KW_NAME, name);
         } else {
             String projectName = project.getName();
             if (projectName != null) {
-                application.put(Keyword.newKeyword("name"), projectName);
+                application.put(KW_NAME, projectName);
             }
         }
 
-        application.put(Keyword.newKeyword("description"), description);
+        application.put(KW_DESCRIPTION, description);
         try {
-            application.put(Keyword.newKeyword("classpaths"), getClasspaths());
+            application.put(KW_CLASSPATHS, getClasspaths());
         } catch (MalformedURLException e) {
             getLog().warn("Can't resolve file to url.", e);
         }
@@ -72,11 +75,11 @@ public class DeployMojo extends AbstractMojo {
                 .request()
                 .post(Entity.entity(application, new MediaType("application", "edn")));
 
-
         if (response.getStatus() == 201) {
             getLog().info("success deploy");
         } else {
-            throw new MojoExecutionException(response.getStatusInfo().getReasonPhrase());
+            throw new MojoExecutionException(response.getStatusInfo().getReasonPhrase() + "\n"
+                    + response.readEntity(String.class));
         }
     }
 
