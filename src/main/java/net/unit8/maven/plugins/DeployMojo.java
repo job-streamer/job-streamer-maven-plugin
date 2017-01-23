@@ -33,6 +33,8 @@ public class DeployMojo extends AbstractMojo {
     private static final Keyword KW_NAME =        Keyword.newKeyword("application", "name");
     private static final Keyword KW_DESCRIPTION = Keyword.newKeyword("application", "description");
     private static final Keyword KW_CLASSPATHS =  Keyword.newKeyword("application", "classpaths");
+    private static final Keyword KW_USERNAME =    Keyword.newKeyword("user", "id");
+    private static final Keyword KW_PASSWORD =    Keyword.newKeyword("user", "password");
     @Component
     protected MavenProject project;
 
@@ -42,10 +44,10 @@ public class DeployMojo extends AbstractMojo {
     @Parameter
     protected String description;
 
-    @Parameter
+    @Parameter(defaultValue = "localhost")
     protected String controlBusHost;
 
-    @Parameter
+    @Parameter(defaultValue = "45102")
     protected int controlBusPort;
 
     @Parameter(property = "project.build.outputDirectory", required = true)
@@ -59,6 +61,12 @@ public class DeployMojo extends AbstractMojo {
 
     @Parameter(property = "libDir")
     protected File libDir;
+
+    @Parameter(required = true)
+    protected String username;
+
+    @Parameter(required = true)
+    protected String password;
 
     @Override
     public void execute() throws MojoExecutionException {
@@ -76,7 +84,31 @@ public class DeployMojo extends AbstractMojo {
             Thread.currentThread().setContextClassLoader(currentLoader);
         }
 
-        Map<Keyword, Object> application = new HashMap<Keyword, Object>();
+        Client client = ClientBuilder.newClient();
+        client.register(EdnWriter.class);
+
+        // Authenticate
+        Map<Keyword, Object> authentication = new HashMap<>();
+        authentication.put(KW_USERNAME, username);
+        authentication.put(KW_PASSWORD, password);
+
+        Response loginResponse = client.target(UriBuilder
+                .fromUri("http://{controlBusHost}:{controlBusPort}/auth")
+                .build(controlBusHost, controlBusPort))
+                .request()
+                .post(Entity.entity(authentication, new MediaType("application", "edn")));
+
+        String authToken;
+        if (loginResponse.getStatus() == 201) {
+            getLog().info("success authentication");
+            authToken = loginResponse.readEntity(String.class).substring(9, 45);
+        } else {
+            throw new MojoExecutionException(loginResponse.getStatusInfo().getReasonPhrase() + "\n"
+                    + loginResponse.readEntity(String.class));
+        }
+
+        // Deploy
+        Map<Keyword, Object> application = new HashMap<>();
         if (name != null) {
             application.put(KW_NAME, name);
         } else {
@@ -93,13 +125,11 @@ public class DeployMojo extends AbstractMojo {
             getLog().warn("Can't resolve file to url.", e);
         }
 
-        Client client = ClientBuilder.newClient();
-        client.register(EdnWriter.class);
-
         Response response = client.target(UriBuilder
                 .fromUri("http://{controlBusHost}:{controlBusPort}/apps")
                 .build(controlBusHost, controlBusPort))
                 .request()
+                .header("Authorization", "Token " + authToken)
                 .post(Entity.entity(application, new MediaType("application", "edn")));
 
         if (response.getStatus() == 201) {
