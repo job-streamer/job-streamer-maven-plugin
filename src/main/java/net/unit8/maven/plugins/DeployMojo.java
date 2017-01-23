@@ -1,5 +1,6 @@
 package net.unit8.maven.plugins;
 
+import net.unit8.weld.Prescanner;
 import org.apache.maven.artifact.Artifact;
 import org.apache.maven.plugin.AbstractMojo;
 import org.apache.maven.plugin.MojoExecutionException;
@@ -13,12 +14,15 @@ import javax.ws.rs.client.Entity;
 import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.Response;
 import javax.ws.rs.core.UriBuilder;
-import java.io.File;
+import java.io.*;
 import java.net.MalformedURLException;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.net.URL;
+import java.net.URLClassLoader;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.nio.file.StandardCopyOption;
+import java.util.*;
 
 /**
  * @author kawasima
@@ -47,8 +51,31 @@ public class DeployMojo extends AbstractMojo {
     @Parameter(property = "project.build.outputDirectory", required = true)
     protected File outputDirectory;
 
+    @Parameter(defaultValue = "weld-deployment.xml")
+    protected String deploymentPath;
+
+    @Parameter(name = "jarFile", property = "jarFile")
+    protected File jarFile;
+
+    @Parameter(property = "libDir")
+    protected File libDir;
+
     @Override
     public void execute() throws MojoExecutionException {
+        ClassLoader currentLoader = Thread.currentThread().getContextClassLoader();
+
+        try {
+            URLClassLoader projectLoader = URLClassLoader.newInstance(new URL[]{
+                    getApplicationClasspath()
+            }, currentLoader);
+            Thread.currentThread().setContextClassLoader(projectLoader);
+            createDeploymentFile();
+        } catch (MalformedURLException e) {
+            throw new MojoExecutionException("output directory is wrong.", e);
+        } finally {
+            Thread.currentThread().setContextClassLoader(currentLoader);
+        }
+
         Map<Keyword, Object> application = new HashMap<Keyword, Object>();
         if (name != null) {
             application.put(KW_NAME, name);
@@ -83,18 +110,57 @@ public class DeployMojo extends AbstractMojo {
         }
     }
 
+    protected void createDeploymentFile() throws MojoExecutionException {
+        try (InputStream in = new Prescanner().scan()) {
+            Path deployment = Paths.get(project.getBuild().getOutputDirectory(), deploymentPath);
+            Files.createDirectories(deployment.getParent());
+            Files.copy(in, deployment, StandardCopyOption.REPLACE_EXISTING);
+        } catch (IOException ex) {
+            throw new MojoExecutionException("Failure to write a deployment file.", ex);
+        }
+
+    }
+
+    protected URL getApplicationClasspath() throws MalformedURLException {
+        if (jarFile != null) {
+            return jarFile.toURI().toURL();
+        } else if (outputDirectory != null) {
+            return outputDirectory.toURI().toURL();
+        } else {
+            throw new IllegalArgumentException("outputDirectory or jarFile is required.");
+        }
+    }
+
+
     protected List<String> getClasspaths() throws MalformedURLException {
-        List<Artifact> artifacts = project.getRuntimeArtifacts();
-        List<String> urls = new ArrayList<String>();
+        List<String> urls = new ArrayList<>();
 
-        for (Artifact artifact : artifacts) {
-            File file = artifact.getFile();
-            urls.add(file.toURI().toURL().toExternalForm());
+        if (libDir != null) {
+            File[] dependencies = libDir.listFiles(new FilenameFilter() {
+                @Override
+                public boolean accept(File dir, String name) {
+                    return name.endsWith(".jar") || name.endsWith(".zip");
+                }
+            });
+
+            if (dependencies != null) {
+                for (File dependency : dependencies) {
+                    urls.add(dependency.toURI().toURL().toExternalForm());
+                }
+            }
+        } else {
+            Set<Artifact> artifacts = project.getArtifacts();
+
+            for (Artifact artifact : artifacts) {
+                if (artifact.getScope().equals(Artifact.SCOPE_RUNTIME)
+                        || artifact.getScope().equals(Artifact.SCOPE_COMPILE)) {
+                    File file = artifact.getFile();
+                    urls.add(file.toURI().toURL().toExternalForm());
+                }
+            }
         }
 
-        if (outputDirectory != null) {
-            urls.add(0, outputDirectory.toURI().toURL().toExternalForm());
-        }
+        urls.add(0, getApplicationClasspath().toExternalForm());
 
         return urls;
     }
