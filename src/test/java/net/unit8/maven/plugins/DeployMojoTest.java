@@ -46,7 +46,7 @@ public class DeployMojoTest {
                 }).build();
         server.start();
     }
-    
+
     @Test(expected = IllegalArgumentException.class)
     public void testSomething() throws Exception {
         DeployMojo mojo = (DeployMojo) rule.lookupMojo("deploy", new File("src/test/resources/test-pom.xml"));
