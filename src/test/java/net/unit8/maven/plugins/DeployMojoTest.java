@@ -12,6 +12,8 @@ import org.junit.Test;
 
 import java.io.File;
 
+import static org.junit.Assert.fail;
+
 /**
  * @author kawasima
  */
@@ -20,12 +22,6 @@ public class DeployMojoTest {
 
     @Rule
     public MojoRule rule = new MojoRule();
-
-    @Test(expected = IllegalArgumentException.class)
-    public void testSomething() throws Exception {
-        DeployMojo mojo = (DeployMojo) rule.lookupMojo("deploy", new File("src/test/resources/test-pom.xml"));
-        mojo.execute();
-    }
 
     @Before
     public void startServer() {
@@ -50,15 +46,20 @@ public class DeployMojoTest {
                 }).build();
         server.start();
     }
+    
+    @Test(expected = IllegalArgumentException.class)
+    public void testSomething() throws Exception {
+        DeployMojo mojo = (DeployMojo) rule.lookupMojo("deploy", new File("src/test/resources/test-pom.xml"));
+        mojo.execute();
+    }
 
     @Test
     public void outputDirectory() throws Exception {
-
+        DeployMojo mojo = (DeployMojo) rule.lookupMojo("deploy", new File("src/test/resources/test-normal-pom.xml"));
         try {
-            DeployMojo mojo = (DeployMojo) rule.lookupMojo("deploy", new File("src/test/resources/test-normal-pom.xml"));
             mojo.execute();
-        } finally {
-
+        } catch (Exception e) {
+            fail();
         }
     }
 
